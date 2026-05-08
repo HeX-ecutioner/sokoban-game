@@ -912,9 +912,9 @@ public class GamePanel extends JPanel {
                 int drawX = (int) (offsetX + visX * TILE_SIZE);
                 int drawY = (int) (offsetY + visY * TILE_SIZE);
                 
-                // Show completed glowing checkmark box if it is resting on a destination pad
+                // Show different color for solved boxes (on a destination pad)
                 boolean onDest = grid.getBoxes()[i].onDestination();
-                int status = onDest ? Tile.WALL : Tile.BOX;
+                int status = onDest ? Tile.SOLVED_BOX : Tile.BOX;
                 drawTile(g2, status, 0, drawX, drawY, (int) visX, (int) visY);
             }
         }
@@ -1020,6 +1020,22 @@ public class GamePanel extends JPanel {
                 // Cross planks
                 g2.drawLine(drawX + 8, drawY + 8, drawX + TILE_SIZE - 8, drawY + TILE_SIZE - 8);
                 g2.drawLine(drawX + TILE_SIZE - 8, drawY + 8, drawX + 8, drawY + TILE_SIZE - 8);
+                g2.setStroke(new java.awt.BasicStroke(1.0f));
+                break;
+            case 5: // SOLVED_BOX
+                // Draw solved box with destination color
+                Color solvedStart = currentTheme.getDestination();
+                Color solvedEnd = solvedStart.darker();
+                java.awt.GradientPaint solvedGp = new java.awt.GradientPaint(drawX, drawY, solvedStart, drawX + TILE_SIZE, drawY + TILE_SIZE, solvedEnd);
+                g2.setPaint(solvedGp);
+                g2.fillRoundRect(drawX + 5, drawY + 5, TILE_SIZE - 10, TILE_SIZE - 10, 8, 8);
+                
+                g2.setColor(Color.WHITE);
+                g2.setStroke(new java.awt.BasicStroke(2.0f));
+                g2.drawRoundRect(drawX + 5, drawY + 5, TILE_SIZE - 10, TILE_SIZE - 10, 8, 8);
+                // Checkmark for solved box
+                g2.drawLine(drawX + 15, drawY + 25, drawX + 22, drawY + 32);
+                g2.drawLine(drawX + 22, drawY + 32, drawX + 35, drawY + 19);
                 g2.setStroke(new java.awt.BasicStroke(1.0f));
                 break;
             case 3: // DESTINATION

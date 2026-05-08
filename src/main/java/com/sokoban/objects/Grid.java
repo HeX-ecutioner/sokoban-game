@@ -137,8 +137,12 @@ public class Grid {
     }
 
     public boolean isDestination(int x, int y) {
-        return grid[x][y].getStatus() == DESTINATION;
-
+        for (int i = 0; i < boxCount; i++) {
+            if (destinations[i].getX() == x && destinations[i].getY() == y) {
+                return true;
+            }
+        }
+        return false;
     }
 
     public Box getBox(int x, int y) {

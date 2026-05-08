@@ -6,6 +6,7 @@ public class Tile {
     public static final int BOX = 2;
     public static final int DESTINATION = 3;
     public static final int PLAYER = 4;
+    public static final int SOLVED_BOX = 5;
     
     private int color = 0;
     private int status = 0;
