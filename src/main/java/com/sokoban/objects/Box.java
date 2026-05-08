@@ -28,6 +28,19 @@ public class Box
     {
         return y;
     }
+    public void setX(int x)
+    {
+        this.x = x;
+    }
+    public void setY(int y)
+    {
+        this.y = y;
+    }
+    public void setPosition(int x, int y)
+    {
+        this.x = x;
+        this.y = y;
+    }
     public boolean moveUp()
     {
         if (!currentGrid.isWall(x, y - 1) && !currentGrid.isBox(x, y - 1))
