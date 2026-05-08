@@ -5,6 +5,7 @@ import com.sokoban.objects.Tile;
 import com.sokoban.util.GameState;
 import com.sokoban.util.Theme;
 import com.sokoban.util.SoundEngine;
+import com.sokoban.util.Particle;
 
 import javax.swing.JPanel;
 import java.awt.Color;
@@ -17,6 +18,9 @@ import java.awt.RenderingHints;
 import java.awt.event.KeyAdapter;
 import java.awt.event.KeyEvent;
 import java.util.Stack;
+import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.Random;
 
 public class GamePanel extends JPanel {
     private static final int TILE_SIZE = 50;
@@ -39,6 +43,10 @@ public class GamePanel extends JPanel {
     
     // Theme Engine
     private Theme currentTheme = Theme.NEON_CYBERPUNK;
+    
+    // Phase 3 Particle System
+    private final List<Particle> particles = new CopyOnWriteArrayList<>();
+    private final Random rand = new Random();
 
     public GamePanel() {
         initGame();
@@ -59,10 +67,14 @@ public class GamePanel extends JPanel {
                 
                 if (!isActionKey) return;
 
+                // Calculate current grid offsets to find particle pixel locations
+                int offsetX = (getWidth() - (width * TILE_SIZE)) / 2;
+                int offsetY = ((getHeight() - 80) - (height * TILE_SIZE)) / 2 + 80;
+
                 // Capture pre-move state in case we move successfully
                 GameState preMoveState = captureState();
                 
-                // Store old box coordinates before move to detect push
+                // Store old box coordinates before move to detect push/snap
                 int boxCount = grid.getBoxCount();
                 int[][] oldBoxPositions = new int[boxCount][2];
                 for (int i = 0; i < boxCount; i++) {
@@ -138,21 +150,30 @@ public class GamePanel extends JPanel {
                     redoStack.clear();
                     moves++;
                     
+                    // Emit soft dust trailing behind player's old position
+                    int oldPX = offsetX + preMoveState.getPlayerX() * TILE_SIZE;
+                    int oldPY = offsetY + preMoveState.getPlayerY() * TILE_SIZE;
+                    emitPlayerDust(oldPX, oldPY);
+                    
                     // Compare box positions before and after movement to detect pushes/snaps
                     boolean boxPushed = false;
                     boolean boxSnapped = false;
+                    int snapX = 0, snapY = 0;
                     for (int i = 0; i < boxCount; i++) {
                         if (grid.getBoxes()[i].getX() != oldBoxPositions[i][0] ||
                             grid.getBoxes()[i].getY() != oldBoxPositions[i][1]) {
                             boxPushed = true;
                             if (grid.getBoxes()[i].onDestination()) {
                                 boxSnapped = true;
+                                snapX = grid.getBoxes()[i].getX();
+                                snapY = grid.getBoxes()[i].getY();
                             }
                             break;
                         }
                     }
                     if (boxSnapped) {
                         SoundEngine.playDestinationSnap();
+                        emitGoalSparkles(offsetX + snapX * TILE_SIZE, offsetY + snapY * TILE_SIZE);
                     } else if (boxPushed) {
                         SoundEngine.playPush();
                     } else {
@@ -162,6 +183,7 @@ public class GamePanel extends JPanel {
                     grid.updateGrid();
                     if (grid.hasWon()) {
                         SoundEngine.playLevelClear();
+                        emitConfetti();
                         levelUp();
                     }
                     repaint();
@@ -173,10 +195,22 @@ public class GamePanel extends JPanel {
         });
         setFocusable(true);
         
-        // Start live timer loop running every 20ms
+        // Start live timer and particle update loop running every 20ms
         repaintTimer = new javax.swing.Timer(20, e -> {
+            boolean needsRepaint = false;
             if (gameStarted && !grid.hasWon()) {
                 elapsedMs = System.currentTimeMillis() - startTime;
+                needsRepaint = true;
+            }
+            if (!particles.isEmpty()) {
+                for (Particle p : particles) {
+                    if (!p.update()) {
+                        particles.remove(p);
+                    }
+                }
+                needsRepaint = true;
+            }
+            if (needsRepaint) {
                 repaint();
             }
         });
@@ -203,6 +237,7 @@ public class GamePanel extends JPanel {
         gameStarted = false;
         undoStack.clear();
         redoStack.clear();
+        particles.clear();
     }
     
     private GameState captureState() {
@@ -234,6 +269,49 @@ public class GamePanel extends JPanel {
         }
         grid.updateGrid();
         repaint();
+    }
+    
+    // Phase 3 Particle Emitters
+    private void emitGoalSparkles(int pixelX, int pixelY) {
+        int centerX = pixelX + TILE_SIZE / 2;
+        int centerY = pixelY + TILE_SIZE / 2;
+        Color sparkColor = currentTheme.getDestination();
+        for (int i = 0; i < 25; i++) {
+            double angle = rand.nextDouble() * 2 * Math.PI;
+            double speed = 0.8 + rand.nextDouble() * 2.5;
+            double vx = Math.cos(angle) * speed;
+            double vy = Math.sin(angle) * speed - 0.8; // slightly upward
+            int size = 5 + rand.nextInt(5);
+            double decay = 0.015 + rand.nextDouble() * 0.02;
+            particles.add(new Particle(centerX, centerY, vx, vy, sparkColor, size, decay));
+        }
+    }
+
+    private void emitPlayerDust(int pixelX, int pixelY) {
+        int centerX = pixelX + TILE_SIZE / 2;
+        int centerY = pixelY + TILE_SIZE / 2 + 15; // trail near feet
+        Color dustColor = new Color(180, 180, 180, 90);
+        for (int i = 0; i < 6; i++) {
+            double vx = (rand.nextDouble() - 0.5) * 1.5;
+            double vy = -0.3 - rand.nextDouble() * 0.8;
+            int size = 6 + rand.nextInt(5);
+            double decay = 0.025 + rand.nextDouble() * 0.025;
+            particles.add(new Particle(centerX, centerY, vx, vy, dustColor, size, decay));
+        }
+    }
+
+    private void emitConfetti() {
+        Color[] colors = {Color.RED, Color.YELLOW, Color.GREEN, Color.CYAN, Color.MAGENTA, Color.ORANGE};
+        for (int i = 0; i < 80; i++) {
+            int x = rand.nextInt(getWidth());
+            int y = rand.nextInt(60) - 60; // start above panel
+            double vx = (rand.nextDouble() - 0.5) * 2.0;
+            double vy = 1.2 + rand.nextDouble() * 2.5;
+            Color color = colors[rand.nextInt(colors.length)];
+            int size = 5 + rand.nextInt(6);
+            double decay = 0.005 + rand.nextDouble() * 0.008;
+            particles.add(new Particle(x, y, vx, vy, color, size, decay));
+        }
     }
     
     private String formatTime(long ms) {
@@ -273,6 +351,11 @@ public class GamePanel extends JPanel {
                 
                 drawTile(g2, status, colorIdx, drawX, drawY, x, y);
             }
+        }
+        
+        // Draw active Particles on top of the grid
+        for (Particle p : particles) {
+            p.draw(g2);
         }
         
         // Draw Glassmorphic HUD Bar
@@ -326,32 +409,43 @@ public class GamePanel extends JPanel {
             case 1: // WALL or Box on Destination
                 boolean isBoundaryWall = tileX == 0 || tileX == width - 1 || tileY == 0 || tileY == height - 1;
                 if (!isBoundaryWall) {
-                    // It is a BOX on DESTINATION! Draw it with a glowing green/destination theme color!
-                    g2.setColor(currentTheme.getDestination());
-                    g2.fillRoundRect(drawX + 5, drawY + 5, TILE_SIZE - 10, TILE_SIZE - 10, 6, 6);
+                    // BOX on DESTINATION: Draw a beautiful glossy completing crate!
+                    Color startColor = currentTheme.getDestination();
+                    Color endColor = startColor.darker();
+                    java.awt.GradientPaint gp = new java.awt.GradientPaint(drawX, drawY, startColor, drawX + TILE_SIZE, drawY + TILE_SIZE, endColor);
+                    g2.setPaint(gp);
+                    g2.fillRoundRect(drawX + 5, drawY + 5, TILE_SIZE - 10, TILE_SIZE - 10, 8, 8);
+                    
                     g2.setColor(Color.WHITE);
                     g2.setStroke(new java.awt.BasicStroke(2.0f));
-                    g2.drawRoundRect(drawX + 5, drawY + 5, TILE_SIZE - 10, TILE_SIZE - 10, 6, 6);
-                    // Inner checkmark or 'X'
+                    g2.drawRoundRect(drawX + 5, drawY + 5, TILE_SIZE - 10, TILE_SIZE - 10, 8, 8);
                     g2.drawLine(drawX + 15, drawY + 15, drawX + TILE_SIZE - 15, drawY + TILE_SIZE - 15);
                     g2.drawLine(drawX + TILE_SIZE - 15, drawY + 15, drawX + 15, drawY + TILE_SIZE - 15);
                     g2.setStroke(new java.awt.BasicStroke(1.0f));
                 } else {
-                    // Boundary wall
-                    g2.setColor(currentTheme.getWall());
+                    // WALL: Draw modern 3D brick with gradient
+                    Color startColor = currentTheme.getWall();
+                    Color endColor = startColor.darker();
+                    java.awt.GradientPaint gp = new java.awt.GradientPaint(drawX, drawY, startColor, drawX, drawY + TILE_SIZE, endColor);
+                    g2.setPaint(gp);
                     g2.fillRoundRect(drawX + 2, drawY + 2, TILE_SIZE - 4, TILE_SIZE - 4, 8, 8);
-                    g2.setColor(currentTheme.getWall().brighter());
+                    
+                    g2.setColor(startColor.brighter());
                     g2.setStroke(new java.awt.BasicStroke(1.5f));
                     g2.drawRoundRect(drawX + 2, drawY + 2, TILE_SIZE - 4, TILE_SIZE - 4, 8, 8);
                     g2.setStroke(new java.awt.BasicStroke(1.0f));
                 }
                 break;
             case 2: // BOX
-                g2.setColor(currentTheme.getBox());
-                g2.fillRoundRect(drawX + 5, drawY + 5, TILE_SIZE - 10, TILE_SIZE - 10, 6, 6);
+                Color crateStart = currentTheme.getBox();
+                Color crateEnd = crateStart.darker();
+                java.awt.GradientPaint crateGp = new java.awt.GradientPaint(drawX, drawY, crateStart, drawX + TILE_SIZE, drawY + TILE_SIZE, crateEnd);
+                g2.setPaint(crateGp);
+                g2.fillRoundRect(drawX + 5, drawY + 5, TILE_SIZE - 10, TILE_SIZE - 10, 8, 8);
+                
                 g2.setColor(currentTheme.getBoxDetail());
                 g2.setStroke(new java.awt.BasicStroke(2.0f));
-                g2.drawRoundRect(drawX + 5, drawY + 5, TILE_SIZE - 10, TILE_SIZE - 10, 6, 6);
+                g2.drawRoundRect(drawX + 5, drawY + 5, TILE_SIZE - 10, TILE_SIZE - 10, 8, 8);
                 // Cross planks
                 g2.drawLine(drawX + 8, drawY + 8, drawX + TILE_SIZE - 8, drawY + TILE_SIZE - 8);
                 g2.drawLine(drawX + TILE_SIZE - 8, drawY + 8, drawX + 8, drawY + TILE_SIZE - 8);
@@ -376,15 +470,25 @@ public class GamePanel extends JPanel {
                 g2.setColor(currentTheme.getGridLine());
                 g2.drawRect(drawX, drawY, TILE_SIZE, TILE_SIZE);
                 
-                g2.setColor(currentTheme.getPlayer());
+                // Glossy sphere player
+                Color pStart = currentTheme.getPlayer();
+                Color pEnd = pStart.darker().darker();
+                java.awt.GradientPaint playerGp = new java.awt.GradientPaint(drawX + 10, drawY + 10, pStart, drawX + TILE_SIZE - 10, drawY + TILE_SIZE - 10, pEnd);
+                g2.setPaint(playerGp);
                 g2.fillOval(drawX + 6, drawY + 6, TILE_SIZE - 12, TILE_SIZE - 12);
-                g2.setColor(Color.WHITE);
-                g2.drawOval(drawX + 6, drawY + 6, TILE_SIZE - 12, TILE_SIZE - 12);
                 
-                // Detailed eyes
-                g2.setColor(Color.DARK_GRAY);
-                g2.fillOval(drawX + 15, drawY + 16, 5, 5);
-                g2.fillOval(drawX + 28, drawY + 16, 5, 5);
+                g2.setColor(Color.WHITE);
+                g2.setStroke(new java.awt.BasicStroke(1.5f));
+                g2.drawOval(drawX + 6, drawY + 6, TILE_SIZE - 12, TILE_SIZE - 12);
+                g2.setStroke(new java.awt.BasicStroke(1.0f));
+                
+                // Anime eyes
+                g2.setColor(Color.WHITE);
+                g2.fillOval(drawX + 14, drawY + 15, 6, 8);
+                g2.fillOval(drawX + 28, drawY + 15, 6, 8);
+                g2.setColor(Color.BLACK);
+                g2.fillOval(drawX + 16, drawY + 17, 3, 4);
+                g2.fillOval(drawX + 30, drawY + 17, 3, 4);
                 break;
         }
     }
