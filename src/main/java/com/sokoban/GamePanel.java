@@ -47,6 +47,12 @@ public class GamePanel extends JPanel {
     // Phase 3 Particle System
     private final List<Particle> particles = new CopyOnWriteArrayList<>();
     private final Random rand = new Random();
+    
+    // Phase 4 Animated visual coordinates
+    private double visualPlayerX;
+    private double visualPlayerY;
+    private double[] visualBoxXs;
+    private double[] visualBoxYs;
 
     public GamePanel() {
         initGame();
@@ -195,13 +201,56 @@ public class GamePanel extends JPanel {
         });
         setFocusable(true);
         
-        // Start live timer and particle update loop running every 20ms
+        // Start live timer and animation update loop running every 20ms
         repaintTimer = new javax.swing.Timer(20, e -> {
             boolean needsRepaint = false;
+            
             if (gameStarted && !grid.hasWon()) {
                 elapsedMs = System.currentTimeMillis() - startTime;
                 needsRepaint = true;
             }
+            
+            // Check and update visual position animations
+            double lerpFactor = 0.25;
+            if (grid != null) {
+                // Slide Player
+                int targetPX = grid.getPlayer().getX();
+                int targetPY = grid.getPlayer().getY();
+                if (Math.abs(visualPlayerX - targetPX) > 0.01) {
+                    visualPlayerX += (targetPX - visualPlayerX) * lerpFactor;
+                    needsRepaint = true;
+                } else {
+                    visualPlayerX = targetPX;
+                }
+                if (Math.abs(visualPlayerY - targetPY) > 0.01) {
+                    visualPlayerY += (targetPY - visualPlayerY) * lerpFactor;
+                    needsRepaint = true;
+                } else {
+                    visualPlayerY = targetPY;
+                }
+                
+                // Slide Boxes
+                int count = grid.getBoxCount();
+                if (visualBoxXs != null && visualBoxYs != null && visualBoxXs.length == count) {
+                    for (int i = 0; i < count; i++) {
+                        int targetBX = grid.getBoxes()[i].getX();
+                        int targetBY = grid.getBoxes()[i].getY();
+                        if (Math.abs(visualBoxXs[i] - targetBX) > 0.01) {
+                            visualBoxXs[i] += (targetBX - visualBoxXs[i]) * lerpFactor;
+                            needsRepaint = true;
+                        } else {
+                            visualBoxXs[i] = targetBX;
+                        }
+                        if (Math.abs(visualBoxYs[i] - targetBY) > 0.01) {
+                            visualBoxYs[i] += (targetBY - visualBoxYs[i]) * lerpFactor;
+                            needsRepaint = true;
+                        } else {
+                            visualBoxYs[i] = targetBY;
+                        }
+                    }
+                }
+            }
+
             if (!particles.isEmpty()) {
                 for (Particle p : particles) {
                     if (!p.update()) {
@@ -210,6 +259,7 @@ public class GamePanel extends JPanel {
                 }
                 needsRepaint = true;
             }
+            
             if (needsRepaint) {
                 repaint();
             }
@@ -220,6 +270,7 @@ public class GamePanel extends JPanel {
     private void initGame() {
         grid = new Grid(width, height, level);
         setPreferredSize(new Dimension(13 * TILE_SIZE, 8 * TILE_SIZE + 80));
+        syncVisualPositions();
     }
     
     private void levelUp() {
@@ -228,6 +279,7 @@ public class GamePanel extends JPanel {
         if (height < 8) height += 1;
         grid = new Grid(width, height, level);
         resetStats();
+        syncVisualPositions();
     }
     
     private void resetStats() {
@@ -238,6 +290,20 @@ public class GamePanel extends JPanel {
         undoStack.clear();
         redoStack.clear();
         particles.clear();
+    }
+    
+    private void syncVisualPositions() {
+        if (grid == null) return;
+        visualPlayerX = grid.getPlayer().getX();
+        visualPlayerY = grid.getPlayer().getY();
+        
+        int count = grid.getBoxCount();
+        visualBoxXs = new double[count];
+        visualBoxYs = new double[count];
+        for (int i = 0; i < count; i++) {
+            visualBoxXs[i] = grid.getBoxes()[i].getX();
+            visualBoxYs[i] = grid.getBoxes()[i].getY();
+        }
     }
     
     private GameState captureState() {
@@ -268,6 +334,7 @@ public class GamePanel extends JPanel {
             this.startTime = System.currentTimeMillis() - this.elapsedMs;
         }
         grid.updateGrid();
+        syncVisualPositions(); // instantly snap visual positions on undo/redo actions
         repaint();
     }
     
@@ -341,19 +408,53 @@ public class GamePanel extends JPanel {
         int offsetX = (getWidth() - (width * TILE_SIZE)) / 2;
         int offsetY = ((getHeight() - 80) - (height * TILE_SIZE)) / 2 + 80;
         
+        // Layer 1: Draw GROUND and Boundary WALLS statically in a grid
         for (int y = 0; y < height; y++) {
             for (int x = 0; x < width; x++) {
                 int drawX = offsetX + x * TILE_SIZE;
                 int drawY = offsetY + y * TILE_SIZE;
                 
-                int status = tiles[x][y].getStatus();
-                int colorIdx = tiles[x][y].getColor();
+                // Always draw ground first as the underlying floor
+                drawTile(g2, Tile.GROUND, 0, drawX, drawY, x, y);
                 
-                drawTile(g2, status, colorIdx, drawX, drawY, x, y);
+                // If it is a boundary wall, draw the brick wall on top
+                if (x == 0 || x == width - 1 || y == 0 || y == height - 1) {
+                    drawTile(g2, Tile.WALL, tiles[x][y].getColor(), drawX, drawY, x, y);
+                }
             }
         }
         
-        // Draw active Particles on top of the grid
+        // Layer 2: Draw Destinations statically
+        for (int i = 0; i < grid.getBoxCount(); i++) {
+            int destX = grid.getDestinations()[i].getX();
+            int destY = grid.getDestinations()[i].getY();
+            int drawX = offsetX + destX * TILE_SIZE;
+            int drawY = offsetY + destY * TILE_SIZE;
+            drawTile(g2, Tile.DESTINATION, 0, drawX, drawY, destX, destY);
+        }
+        
+        // Layer 3: Draw Boxes dynamically (smooth sliding animation)
+        int boxCount = grid.getBoxCount();
+        if (visualBoxXs != null && visualBoxYs != null && visualBoxXs.length == boxCount) {
+            for (int i = 0; i < boxCount; i++) {
+                double visX = visualBoxXs[i];
+                double visY = visualBoxYs[i];
+                int drawX = (int) (offsetX + visX * TILE_SIZE);
+                int drawY = (int) (offsetY + visY * TILE_SIZE);
+                
+                // Show completed glowing checkmark box if it is resting on a destination pad
+                boolean onDest = grid.getBoxes()[i].onDestination();
+                int status = onDest ? Tile.WALL : Tile.BOX;
+                drawTile(g2, status, 0, drawX, drawY, (int) visX, (int) visY);
+            }
+        }
+        
+        // Layer 4: Draw Player dynamically (smooth sliding animation)
+        int playerDrawX = (int) (offsetX + visualPlayerX * TILE_SIZE);
+        int playerDrawY = (int) (offsetY + visualPlayerY * TILE_SIZE);
+        drawTile(g2, Tile.PLAYER, 0, playerDrawX, playerDrawY, (int) visualPlayerX, (int) visualPlayerY);
+        
+        // Draw active Particles on top of the grid layer
         for (Particle p : particles) {
             p.draw(g2);
         }
