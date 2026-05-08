@@ -36,6 +36,59 @@ public class Grid {
         updateGrid();
     }
 
+    public Grid(int[][] editorGrid, int width, int height) {
+        this.width = width;
+        this.height = height;
+        this.grid = new Tile[width][height];
+        
+        // Count boxes
+        int boxesFound = 0;
+        for (int x = 0; x < width; x++) {
+            for (int y = 0; y < height; y++) {
+                if (editorGrid[x][y] == 2) {
+                    boxesFound++;
+                }
+            }
+        }
+        this.boxCount = boxesFound;
+        this.boxes = new Box[boxCount];
+        this.destinations = new Destination[boxCount];
+        
+        int boxIdx = 0;
+        int destIdx = 0;
+        int pX = 2;
+        int pY = 2;
+        
+        for (int x = 0; x < width; x++) {
+            for (int y = 0; y < height; y++) {
+                if (editorGrid[x][y] == 4) {
+                    pX = x;
+                    pY = y;
+                }
+            }
+        }
+        
+        this.player = new Player(pX, pY, this);
+        this.player.resetPosition();
+        
+        for (int x = 0; x < width; x++) {
+            for (int y = 0; y < height; y++) {
+                if (editorGrid[x][y] == 2) {
+                    boxes[boxIdx] = new Box(x, y, this);
+                    boxes[boxIdx].reset();
+                    boxIdx++;
+                }
+                if (editorGrid[x][y] == 3) {
+                    destinations[destIdx] = new Destination(x, y, this);
+                    destIdx++;
+                }
+            }
+        }
+        
+        updateGrid();
+    }
+
+
     public Player getPlayer() {
         return player;
     }
