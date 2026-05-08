@@ -3,6 +3,8 @@ package com.sokoban;
 import com.sokoban.objects.Grid;
 import com.sokoban.objects.Tile;
 import com.sokoban.util.GameState;
+import com.sokoban.util.Theme;
+import com.sokoban.util.SoundEngine;
 
 import javax.swing.JPanel;
 import java.awt.Color;
@@ -24,7 +26,7 @@ public class GamePanel extends JPanel {
     private int height = 6;
     private Grid grid;
     
-    // Phase 1 Stats & Undo/Redo Fields
+    // Stats & Undo/Redo Fields
     private int moves = 0;
     private int pushes = 0;
     private long startTime = 0;
@@ -34,6 +36,9 @@ public class GamePanel extends JPanel {
     private final Stack<GameState> undoStack = new Stack<>();
     private final Stack<GameState> redoStack = new Stack<>();
     private javax.swing.Timer repaintTimer;
+    
+    // Theme Engine
+    private Theme currentTheme = Theme.NEON_CYBERPUNK;
 
     public GamePanel() {
         initGame();
@@ -41,7 +46,7 @@ public class GamePanel extends JPanel {
         addKeyListener(new KeyAdapter() {
             @Override
             public void keyPressed(KeyEvent e) {
-                // Check if key is one of the valid gameplay/undo/redo actions
+                // Check if key is one of the valid gameplay/undo/redo/options actions
                 int keyCode = e.getKeyCode();
                 boolean isMovementKey = keyCode == KeyEvent.VK_UP || keyCode == KeyEvent.VK_W ||
                                         keyCode == KeyEvent.VK_DOWN || keyCode == KeyEvent.VK_S ||
@@ -49,7 +54,8 @@ public class GamePanel extends JPanel {
                                         keyCode == KeyEvent.VK_RIGHT || keyCode == KeyEvent.VK_D;
                 
                 boolean isActionKey = isMovementKey || keyCode == KeyEvent.VK_R || 
-                                      keyCode == KeyEvent.VK_U || keyCode == KeyEvent.VK_Y;
+                                      keyCode == KeyEvent.VK_U || keyCode == KeyEvent.VK_Y ||
+                                      keyCode == KeyEvent.VK_T || keyCode == KeyEvent.VK_M;
                 
                 if (!isActionKey) return;
 
@@ -97,6 +103,7 @@ public class GamePanel extends JPanel {
                             GameState popped = undoStack.pop();
                             redoStack.push(captureState());
                             restoreState(popped);
+                            SoundEngine.playMove();
                         }
                         break;
                     case KeyEvent.VK_Y:
@@ -105,7 +112,20 @@ public class GamePanel extends JPanel {
                             GameState popped = redoStack.pop();
                             undoStack.push(captureState());
                             restoreState(popped);
+                            SoundEngine.playMove();
                         }
+                        break;
+                    case KeyEvent.VK_T:
+                        // Toggle Theme
+                        Theme[] themes = Theme.values();
+                        int nextIdx = (currentTheme.ordinal() + 1) % themes.length;
+                        currentTheme = themes[nextIdx];
+                        repaint();
+                        break;
+                    case KeyEvent.VK_M:
+                        // Mute/Unmute Sounds
+                        SoundEngine.toggleSound();
+                        repaint();
                         break;
                 }
                 
@@ -118,24 +138,36 @@ public class GamePanel extends JPanel {
                     redoStack.clear();
                     moves++;
                     
-                    // Compare box positions before and after movement to detect pushes
+                    // Compare box positions before and after movement to detect pushes/snaps
                     boolean boxPushed = false;
+                    boolean boxSnapped = false;
                     for (int i = 0; i < boxCount; i++) {
                         if (grid.getBoxes()[i].getX() != oldBoxPositions[i][0] ||
                             grid.getBoxes()[i].getY() != oldBoxPositions[i][1]) {
                             boxPushed = true;
+                            if (grid.getBoxes()[i].onDestination()) {
+                                boxSnapped = true;
+                            }
                             break;
                         }
                     }
-                    if (boxPushed) {
-                        pushes++;
+                    if (boxSnapped) {
+                        SoundEngine.playDestinationSnap();
+                    } else if (boxPushed) {
+                        SoundEngine.playPush();
+                    } else {
+                        SoundEngine.playMove();
                     }
                     
                     grid.updateGrid();
                     if (grid.hasWon()) {
+                        SoundEngine.playLevelClear();
                         levelUp();
                     }
                     repaint();
+                } else if (!moved && isMovementKey) {
+                    // Hit a wall or stuck crate
+                    SoundEngine.playWallBump();
                 }
             }
         });
@@ -219,8 +251,8 @@ public class GamePanel extends JPanel {
         g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
         g2.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
         
-        // Draw background
-        g2.setColor(new Color(30, 30, 30));
+        // Draw background using theme
+        g2.setColor(currentTheme.getBg());
         g2.fillRect(0, 0, getWidth(), getHeight());
         
         if (grid == null) return;
@@ -239,7 +271,7 @@ public class GamePanel extends JPanel {
                 int status = tiles[x][y].getStatus();
                 int colorIdx = tiles[x][y].getColor();
                 
-                drawTile(g2, status, colorIdx, drawX, drawY);
+                drawTile(g2, status, colorIdx, drawX, drawY, x, y);
             }
         }
         
@@ -252,62 +284,107 @@ public class GamePanel extends JPanel {
         g2.setStroke(new java.awt.BasicStroke(1.0f));
 
         // Draw HUD Text - Level Indicator (Left)
-        g2.setFont(new Font("Segoe UI", Font.BOLD, 15));
+        g2.setFont(new Font("Segoe UI", Font.BOLD, 14));
         g2.setColor(new Color(0, 255, 200));
-        g2.drawString("LEVEL " + level, 30, 46);
+        g2.drawString("LEVEL " + level, 30, 34);
+        
+        g2.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+        g2.setColor(new Color(180, 180, 180));
+        g2.drawString("Theme: " + currentTheme.getName(), 30, 52);
         
         // Stats (Center)
-        g2.setFont(new Font("Segoe UI", Font.PLAIN, 14));
+        g2.setFont(new Font("Segoe UI", Font.BOLD, 14));
         g2.setColor(Color.WHITE);
         String statsText = "Moves: " + moves + "  •  Pushes: " + pushes + "  •  Time: " + formatTime(elapsedMs);
         FontMetrics fm = g2.getFontMetrics();
         g2.drawString(statsText, (getWidth() - fm.stringWidth(statsText)) / 2, 45);
         
         // Controls hint (Right)
-        g2.setFont(new Font("Segoe UI", Font.PLAIN, 12));
-        g2.setColor(new Color(180, 180, 180));
+        g2.setFont(new Font("Segoe UI", Font.BOLD, 12));
+        g2.setColor(Color.WHITE);
         String controlsText = "U: Undo | Y: Redo | R: Reset";
         int rightX = getWidth() - g2.getFontMetrics().stringWidth(controlsText) - 30;
-        g2.drawString(controlsText, rightX, 45);
+        g2.drawString(controlsText, rightX, 34);
+        
+        g2.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+        g2.setColor(new Color(180, 180, 180));
+        String soundStatus = SoundEngine.isEnabled() ? "Sound: ON (M: Mute)" : "Sound: MUTED (M: Unmute)";
+        String themeStatus = "T: Toggle Theme | " + soundStatus;
+        int rightXSub = getWidth() - g2.getFontMetrics().stringWidth(themeStatus) - 30;
+        g2.drawString(themeStatus, rightXSub, 52);
     }
     
-    private void drawTile(Graphics g, int status, int colorIdx, int x, int y) {
+    private void drawTile(Graphics g, int status, int colorIdx, int drawX, int drawY, int tileX, int tileY) {
         Graphics2D g2 = (Graphics2D) g;
         switch (status) {
             case 0: // GROUND
-                g2.setColor(Color.DARK_GRAY);
-                g2.fillRect(x, y, TILE_SIZE, TILE_SIZE);
-                g2.setColor(new Color(50, 50, 50));
-                g2.drawRect(x, y, TILE_SIZE, TILE_SIZE);
+                g2.setColor(currentTheme.getGround());
+                g2.fillRect(drawX, drawY, TILE_SIZE, TILE_SIZE);
+                g2.setColor(currentTheme.getGridLine());
+                g2.drawRect(drawX, drawY, TILE_SIZE, TILE_SIZE);
                 break;
-            case 1: // WALL
-                Color[] wallColors = {
-                    Color.RED, Color.ORANGE, Color.YELLOW, 
-                    Color.GREEN, Color.BLUE, Color.MAGENTA
-                };
-                g2.setColor(wallColors[colorIdx % wallColors.length]);
-                g2.fillRect(x, y, TILE_SIZE, TILE_SIZE);
-                g2.setColor(Color.WHITE);
-                g2.drawRect(x, y, TILE_SIZE, TILE_SIZE);
+            case 1: // WALL or Box on Destination
+                boolean isBoundaryWall = tileX == 0 || tileX == width - 1 || tileY == 0 || tileY == height - 1;
+                if (!isBoundaryWall) {
+                    // It is a BOX on DESTINATION! Draw it with a glowing green/destination theme color!
+                    g2.setColor(currentTheme.getDestination());
+                    g2.fillRoundRect(drawX + 5, drawY + 5, TILE_SIZE - 10, TILE_SIZE - 10, 6, 6);
+                    g2.setColor(Color.WHITE);
+                    g2.setStroke(new java.awt.BasicStroke(2.0f));
+                    g2.drawRoundRect(drawX + 5, drawY + 5, TILE_SIZE - 10, TILE_SIZE - 10, 6, 6);
+                    // Inner checkmark or 'X'
+                    g2.drawLine(drawX + 15, drawY + 15, drawX + TILE_SIZE - 15, drawY + TILE_SIZE - 15);
+                    g2.drawLine(drawX + TILE_SIZE - 15, drawY + 15, drawX + 15, drawY + TILE_SIZE - 15);
+                    g2.setStroke(new java.awt.BasicStroke(1.0f));
+                } else {
+                    // Boundary wall
+                    g2.setColor(currentTheme.getWall());
+                    g2.fillRoundRect(drawX + 2, drawY + 2, TILE_SIZE - 4, TILE_SIZE - 4, 8, 8);
+                    g2.setColor(currentTheme.getWall().brighter());
+                    g2.setStroke(new java.awt.BasicStroke(1.5f));
+                    g2.drawRoundRect(drawX + 2, drawY + 2, TILE_SIZE - 4, TILE_SIZE - 4, 8, 8);
+                    g2.setStroke(new java.awt.BasicStroke(1.0f));
+                }
                 break;
             case 2: // BOX
-                g2.setColor(new Color(139, 69, 19)); // Brown
-                g2.fillRect(x + 5, y + 5, TILE_SIZE - 10, TILE_SIZE - 10);
-                g2.setColor(new Color(160, 82, 45));
-                g2.drawRect(x + 5, y + 5, TILE_SIZE - 10, TILE_SIZE - 10);
+                g2.setColor(currentTheme.getBox());
+                g2.fillRoundRect(drawX + 5, drawY + 5, TILE_SIZE - 10, TILE_SIZE - 10, 6, 6);
+                g2.setColor(currentTheme.getBoxDetail());
+                g2.setStroke(new java.awt.BasicStroke(2.0f));
+                g2.drawRoundRect(drawX + 5, drawY + 5, TILE_SIZE - 10, TILE_SIZE - 10, 6, 6);
+                // Cross planks
+                g2.drawLine(drawX + 8, drawY + 8, drawX + TILE_SIZE - 8, drawY + TILE_SIZE - 8);
+                g2.drawLine(drawX + TILE_SIZE - 8, drawY + 8, drawX + 8, drawY + TILE_SIZE - 8);
+                g2.setStroke(new java.awt.BasicStroke(1.0f));
                 break;
             case 3: // DESTINATION
-                g2.setColor(Color.DARK_GRAY);
-                g2.fillRect(x, y, TILE_SIZE, TILE_SIZE);
-                g2.setColor(Color.RED);
-                g2.drawLine(x + 10, y + 10, x + TILE_SIZE - 10, y + TILE_SIZE - 10);
-                g2.drawLine(x + TILE_SIZE - 10, y + 10, x + 10, y + TILE_SIZE - 10);
+                g2.setColor(currentTheme.getGround());
+                g2.fillRect(drawX, drawY, TILE_SIZE, TILE_SIZE);
+                g2.setColor(currentTheme.getGridLine());
+                g2.drawRect(drawX, drawY, TILE_SIZE, TILE_SIZE);
+                
+                // Neon glowing target pad
+                g2.setColor(currentTheme.getDestination());
+                g2.setStroke(new java.awt.BasicStroke(2.0f));
+                g2.drawOval(drawX + 10, drawY + 10, TILE_SIZE - 20, TILE_SIZE - 20);
+                g2.fillOval(drawX + 20, drawY + 20, TILE_SIZE - 40, TILE_SIZE - 40);
+                g2.setStroke(new java.awt.BasicStroke(1.0f));
                 break;
             case 4: // PLAYER
+                g2.setColor(currentTheme.getGround());
+                g2.fillRect(drawX, drawY, TILE_SIZE, TILE_SIZE);
+                g2.setColor(currentTheme.getGridLine());
+                g2.drawRect(drawX, drawY, TILE_SIZE, TILE_SIZE);
+                
+                g2.setColor(currentTheme.getPlayer());
+                g2.fillOval(drawX + 6, drawY + 6, TILE_SIZE - 12, TILE_SIZE - 12);
+                g2.setColor(Color.WHITE);
+                g2.drawOval(drawX + 6, drawY + 6, TILE_SIZE - 12, TILE_SIZE - 12);
+                
+                // Detailed eyes
                 g2.setColor(Color.DARK_GRAY);
-                g2.fillRect(x, y, TILE_SIZE, TILE_SIZE);
-                g2.setColor(Color.CYAN);
-                g2.fillOval(x + 5, y + 5, TILE_SIZE - 10, TILE_SIZE - 10);
+                g2.fillOval(drawX + 15, drawY + 16, 5, 5);
+                g2.fillOval(drawX + 28, drawY + 16, 5, 5);
                 break;
         }
     }
