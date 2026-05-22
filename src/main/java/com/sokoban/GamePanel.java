@@ -25,19 +25,24 @@ import java.util.prefs.Preferences;
 
 public class GamePanel extends JPanel {
     private static final int TILE_SIZE = 50;
-    
-    // Phase 5 & 6 Screen Modes
+
+    private enum Difficulty {
+        EASY,
+        MEDIUM,
+        HARD
+    }
+
+    // Screen modes
     private static final int MAIN_MENU = 0;
     private static final int PLAYING = 1;
-    private static final int LEVEL_SELECTOR = 2;
     private static final int PAUSED = 3;
-    private static final int LEVEL_EDITOR = 4;
     private int screenMode = MAIN_MENU;
-    
+
     private int level = 1;
     private int width = 9;
     private int height = 6;
     private Grid grid;
+    private Difficulty selectedDifficulty = Difficulty.EASY;
     
     // Stats & Undo/Redo Fields
     private int moves = 0;
@@ -63,56 +68,35 @@ public class GamePanel extends JPanel {
     private double[] visualBoxXs;
     private double[] visualBoxYs;
     
-    // Phase 5 Preferences Save System
+    // Preferences Save System
     private final Preferences prefs = Preferences.userNodeForPackage(GamePanel.class);
-    
-    // Phase 6 Level Editor Fields
-    private int editorWidth = 9;
-    private int editorHeight = 6;
-    private int[][] editorGrid;
-    private int selectedBrush = 1; // Default to Wall Brush
 
     public GamePanel() {
         initGame();
-        initEditor();
         
         addKeyListener(new KeyAdapter() {
             @Override
             public void keyPressed(KeyEvent e) {
                 int keyCode = e.getKeyCode();
                 
-                // Handle different screen mode inputs
                 if (screenMode == MAIN_MENU) {
                     if (keyCode == KeyEvent.VK_ENTER || keyCode == KeyEvent.VK_SPACE) {
-                        screenMode = PLAYING;
-                        initGame();
+                        startNewGame(selectedDifficulty);
                         SoundEngine.playMove();
                         repaint();
-                    } else if (keyCode == KeyEvent.VK_L) {
-                        screenMode = LEVEL_SELECTOR;
+                    } else if (keyCode == KeyEvent.VK_1) {
+                        startNewGame(Difficulty.EASY);
                         SoundEngine.playMove();
                         repaint();
-                    } else if (keyCode == KeyEvent.VK_E) {
-                        screenMode = LEVEL_EDITOR;
-                        initEditor();
+                    } else if (keyCode == KeyEvent.VK_2) {
+                        startNewGame(Difficulty.MEDIUM);
                         SoundEngine.playMove();
                         repaint();
-                    }
-                    return;
-                } else if (screenMode == LEVEL_SELECTOR) {
-                    if (keyCode == KeyEvent.VK_ESCAPE) {
-                        screenMode = MAIN_MENU;
+                    } else if (keyCode == KeyEvent.VK_3) {
+                        startNewGame(Difficulty.HARD);
                         SoundEngine.playMove();
                         repaint();
                     }
-                    return;
-                } else if (screenMode == LEVEL_EDITOR) {
-                    if (keyCode == KeyEvent.VK_ESCAPE) {
-                        screenMode = MAIN_MENU;
-                        SoundEngine.playMove();
-                        repaint();
-                    }
-                    return;
                 } else if (screenMode == PAUSED) {
                     if (keyCode == KeyEvent.VK_ESCAPE) {
                         screenMode = PLAYING;
@@ -269,7 +253,7 @@ public class GamePanel extends JPanel {
             }
         });
         
-        // Add Mouse clicks for Menus & Level Grid selection
+        // Add Mouse clicks for Menus
         addMouseListener(new java.awt.event.MouseAdapter() {
             @Override
             public void mousePressed(java.awt.event.MouseEvent e) {
@@ -279,48 +263,18 @@ public class GamePanel extends JPanel {
                 if (screenMode == MAIN_MENU) {
                     int cx = getWidth() / 2;
                     if (mx >= cx - 100 && mx <= cx + 100) {
-                        if (my >= 142 && my <= 178) {
-                            screenMode = PLAYING;
-                            initGame();
+                        if (my >= 150 && my <= 186) {
+                            startNewGame(Difficulty.EASY);
                             SoundEngine.playMove();
-                        } else if (my >= 192 && my <= 228) {
-                            screenMode = LEVEL_SELECTOR;
+                        } else if (my >= 200 && my <= 236) {
+                            startNewGame(Difficulty.MEDIUM);
                             SoundEngine.playMove();
-                        } else if (my >= 242 && my <= 278) {
-                            screenMode = LEVEL_EDITOR;
-                            initEditor();
+                        } else if (my >= 250 && my <= 286) {
+                            startNewGame(Difficulty.HARD);
                             SoundEngine.playMove();
-                        } else if (my >= 292 && my <= 328) {
+                        } else if (my >= 300 && my <= 336) {
                             System.exit(0);
                         }
-                    }
-                } else if (screenMode == LEVEL_SELECTOR) {
-                    int highLevel = prefs.getInt("highLevelReached", 1);
-                    int startX = (getWidth() - (5 * 60 + 4 * 15)) / 2;
-                    int startY = 120;
-                    for (int i = 0; i < 15; i++) {
-                        int row = i / 5;
-                        int col = i % 5;
-                        int bx = startX + col * 75;
-                        int by = startY + row * 75;
-                        if (mx >= bx && mx <= bx + 60 && my >= by && my <= by + 60) {
-                            int selectedLevel = i + 1;
-                            if (selectedLevel <= highLevel) {
-                                level = selectedLevel;
-                                screenMode = PLAYING;
-                                initGame();
-                                SoundEngine.playLevelClear();
-                            } else {
-                                SoundEngine.playWallBump();
-                            }
-                            break;
-                        }
-                    }
-                    
-                    int cx = getWidth() / 2;
-                    if (mx >= cx - 80 && mx <= cx + 80 && my >= 360 && my <= 396) {
-                        screenMode = MAIN_MENU;
-                        SoundEngine.playMove();
                     }
                 } else if (screenMode == PAUSED) {
                     int cx = getWidth() / 2;
@@ -340,81 +294,8 @@ public class GamePanel extends JPanel {
                             SoundEngine.playMove();
                         }
                     }
-                } else if (screenMode == LEVEL_EDITOR) {
-                    int offsetX = (getWidth() - (editorWidth * TILE_SIZE)) / 2;
-                    int offsetY = 90;
-                    
-                    if (mx >= offsetX && mx <= offsetX + editorWidth * TILE_SIZE &&
-                        my >= offsetY && my <= offsetY + editorHeight * TILE_SIZE) {
-                        int tx = (mx - offsetX) / TILE_SIZE;
-                        int ty = (my - offsetY) / TILE_SIZE;
-                        
-                        if (tx >= 0 && tx < editorWidth && ty >= 0 && ty < editorHeight) {
-                            editorGrid[tx][ty] = selectedBrush;
-                            SoundEngine.playMove();
-                        }
-                    }
-                    
-                    // Brush buttons selections
-                    int paletteY = offsetY + editorHeight * TILE_SIZE + 20;
-                    for (int i = 0; i < 5; i++) {
-                        int bx = 130 + i * 80;
-                        if (mx >= bx && mx <= bx + 70 && my >= paletteY && my <= paletteY + 32) {
-                            selectedBrush = i;
-                            SoundEngine.playMove();
-                            break;
-                        }
-                    }
-                    
-                    // Action Buttons
-                    int actionY = paletteY + 50;
-                    int cx = getWidth() / 2;
-                    if (mx >= cx - 160 && mx <= mx - 60 && my >= actionY - 17 && my <= actionY + 17) {
-                        // Play level: Validate first
-                        if (validateEditorMap(false)) {
-                            loadEditorMapIntoGame();
-                            screenMode = PLAYING;
-                            SoundEngine.playLevelClear();
-                        } else {
-                            SoundEngine.playWallBump();
-                        }
-                    } else if (mx >= cx - 50 && mx <= cx + 50 && my >= actionY - 17 && my <= actionY + 17) {
-                        // Validate level
-                        validateEditorMap(true);
-                    } else if (mx >= cx + 55 && mx <= cx + 165 && my >= actionY - 17 && my <= actionY + 17) {
-                        // Back to Menu
-                        screenMode = MAIN_MENU;
-                        SoundEngine.playMove();
-                    }
                 }
                 repaint();
-            }
-        });
-        
-        // Add Mouse dragged drawing for the Level Editor
-        addMouseMotionListener(new java.awt.event.MouseMotionAdapter() {
-            @Override
-            public void mouseDragged(java.awt.event.MouseEvent e) {
-                if (screenMode == LEVEL_EDITOR) {
-                    int mx = e.getX();
-                    int my = e.getY();
-                    int offsetX = (getWidth() - (editorWidth * TILE_SIZE)) / 2;
-                    int offsetY = 90;
-                    
-                    if (mx >= offsetX && mx <= offsetX + editorWidth * TILE_SIZE &&
-                        my >= offsetY && my <= offsetY + editorHeight * TILE_SIZE) {
-                        int tx = (mx - offsetX) / TILE_SIZE;
-                        int ty = (my - offsetY) / TILE_SIZE;
-                        
-                        if (tx >= 0 && tx < editorWidth && ty >= 0 && ty < editorHeight) {
-                            if (editorGrid[tx][ty] != selectedBrush) {
-                                editorGrid[tx][ty] = selectedBrush;
-                                SoundEngine.playMove();
-                                repaint();
-                            }
-                        }
-                    }
-                }
             }
         });
         setFocusable(true);
@@ -490,50 +371,27 @@ public class GamePanel extends JPanel {
         setPreferredSize(new Dimension(13 * TILE_SIZE, 8 * TILE_SIZE + 80));
         syncVisualPositions();
     }
-    
-    private void initEditor() {
-        editorGrid = new int[editorWidth][editorHeight];
-        for (int x = 0; x < editorWidth; x++) {
-            for (int y = 0; y < editorHeight; y++) {
-                if (x == 0 || x == editorWidth - 1 || y == 0 || y == editorHeight - 1) {
-                    editorGrid[x][y] = 1; // Wall
-                } else {
-                    editorGrid[x][y] = 0; // Ground
-                }
-            }
-        }
-    }
-    
-    private void loadEditorMapIntoGame() {
-        width = editorWidth;
-        height = editorHeight;
-        grid = new Grid(editorGrid, width, height);
+
+    private void startNewGame(Difficulty difficulty) {
+        selectedDifficulty = difficulty;
+        screenMode = PLAYING;
+        level = 1;
+        width = 9;
+        height = 6;
         resetStats();
-        syncVisualPositions();
+        initGame();
     }
-    
-    private boolean validateEditorMap(boolean showFeedback) {
-        int playerCount = 0;
-        int boxCount = 0;
-        int targetCount = 0;
-        
-        for (int x = 0; x < editorWidth; x++) {
-            for (int y = 0; y < editorHeight; y++) {
-                if (editorGrid[x][y] == 2) boxCount++;
-                else if (editorGrid[x][y] == 3) targetCount++;
-                else if (editorGrid[x][y] == 4) playerCount++;
-            }
+
+    private String formatDifficulty(Difficulty difficulty) {
+        switch (difficulty) {
+            case MEDIUM:
+                return "Medium";
+            case HARD:
+                return "Hard";
+            case EASY:
+            default:
+                return "Easy";
         }
-        
-        boolean valid = playerCount == 1 && boxCount > 0 && boxCount == targetCount;
-        if (showFeedback) {
-            if (valid) {
-                SoundEngine.playLevelClear();
-            } else {
-                SoundEngine.playWallBump();
-            }
-        }
-        return valid;
     }
     
     private void levelUp() {
@@ -677,10 +535,6 @@ public class GamePanel extends JPanel {
         
         if (screenMode == MAIN_MENU) {
             drawMainMenu(g2);
-        } else if (screenMode == LEVEL_SELECTOR) {
-            drawLevelSelector(g2);
-        } else if (screenMode == LEVEL_EDITOR) {
-            drawLevelEditor(g2);
         } else if (screenMode == PLAYING) {
             drawGamePlay(g2);
         } else if (screenMode == PAUSED) {
@@ -710,131 +564,19 @@ public class GamePanel extends JPanel {
         String sub = "The Premium 3D Puzzle Experience";
         FontMetrics fmSub = g2.getFontMetrics();
         g2.drawString(sub, (getWidth() - fmSub.stringWidth(sub)) / 2, 115);
+
+        g2.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+        g2.setColor(new Color(200, 200, 200));
+        String difficultyHint = "Choose a difficulty to start the same game flow for now";
+        FontMetrics fmHint = g2.getFontMetrics();
+        g2.drawString(difficultyHint, (getWidth() - fmHint.stringWidth(difficultyHint)) / 2, 134);
         
         // Buttons
         int cx = getWidth() / 2;
-        drawButton(g2, "START GAME", cx, 160, 200, 36, currentTheme.getDestination());
-        drawButton(g2, "LEVEL SELECTOR", cx, 210, 200, 36, currentTheme.getPlayer());
-        drawButton(g2, "LEVEL EDITOR", cx, 260, 200, 36, currentTheme.getDestination());
-        drawButton(g2, "EXIT", cx, 310, 200, 36, currentTheme.getWall());
-    }
-
-    private void drawLevelSelector(Graphics2D g2) {
-        g2.setColor(currentTheme.getBg());
-        g2.fillRect(0, 0, getWidth(), getHeight());
-        
-        g2.setFont(new Font("Segoe UI", Font.BOLD, 24));
-        g2.setColor(Color.WHITE);
-        String title = "SELECT LEVEL";
-        FontMetrics fm = g2.getFontMetrics();
-        g2.drawString(title, (getWidth() - fm.stringWidth(title)) / 2, 65);
-        
-        int highLevel = prefs.getInt("highLevelReached", 1);
-        int startX = (getWidth() - (5 * 60 + 4 * 15)) / 2;
-        int startY = 120;
-        
-        for (int i = 0; i < 15; i++) {
-            int row = i / 5;
-            int col = i % 5;
-            int bx = startX + col * 75;
-            int by = startY + row * 75;
-            
-            boolean unlocked = (i + 1) <= highLevel;
-            if (unlocked) {
-                g2.setColor(new Color(35, 35, 45));
-                g2.fillRoundRect(bx, by, 60, 60, 10, 10);
-                g2.setColor(currentTheme.getDestination());
-                g2.setStroke(new java.awt.BasicStroke(1.5f));
-                g2.drawRoundRect(bx, by, 60, 60, 10, 10);
-                g2.setStroke(new java.awt.BasicStroke(1.0f));
-                
-                g2.setFont(new Font("Segoe UI", Font.BOLD, 16));
-                g2.setColor(Color.WHITE);
-                String numStr = String.valueOf(i + 1);
-                FontMetrics fmNum = g2.getFontMetrics();
-                g2.drawString(numStr, bx + (60 - fmNum.stringWidth(numStr)) / 2, by + 35);
-            } else {
-                g2.setColor(new Color(25, 25, 25, 120));
-                g2.fillRoundRect(bx, by, 60, 60, 10, 10);
-                g2.setColor(new Color(255, 255, 255, 10));
-                g2.drawRoundRect(bx, by, 60, 60, 10, 10);
-                
-                // Draw vector lock symbol
-                g2.setColor(new Color(80, 80, 80));
-                g2.drawRoundRect(bx + 22, by + 25, 16, 16, 4, 4);
-                g2.drawArc(bx + 25, by + 16, 10, 14, 0, 180);
-            }
-        }
-        
-        // Back Button
-        int cx = getWidth() / 2;
-        drawButton(g2, "BACK TO MENU", cx, 378, 160, 36, currentTheme.getWall());
-    }
-
-    private void drawLevelEditor(Graphics2D g2) {
-        g2.setColor(currentTheme.getBg());
-        g2.fillRect(0, 0, getWidth(), getHeight());
-        
-        g2.setFont(new Font("Segoe UI", Font.BOLD, 22));
-        g2.setColor(Color.WHITE);
-        String title = "LEVEL EDITOR";
-        FontMetrics fm = g2.getFontMetrics();
-        g2.drawString(title, (getWidth() - fm.stringWidth(title)) / 2, 45);
-        
-        // Draw editable grid centered
-        int offsetX = (getWidth() - (editorWidth * TILE_SIZE)) / 2;
-        int offsetY = 80;
-        
-        for (int y = 0; y < editorHeight; y++) {
-            for (int x = 0; x < editorWidth; x++) {
-                int drawX = offsetX + x * TILE_SIZE;
-                int drawY = offsetY + y * TILE_SIZE;
-                
-                int status = editorGrid[x][y];
-                drawTile(g2, status, 0, drawX, drawY, x, y);
-                
-                // Draw gridlines
-                g2.setColor(new Color(255, 255, 255, 25));
-                g2.drawRect(drawX, drawY, TILE_SIZE, TILE_SIZE);
-            }
-        }
-        
-        // Draw Brushes below grid
-        int paletteY = offsetY + editorHeight * TILE_SIZE + 20;
-        g2.setFont(new Font("Segoe UI", Font.BOLD, 12));
-        g2.setColor(Color.WHITE);
-        g2.drawString("SELECT BRUSH:", 25, paletteY + 21);
-        
-        String[] brushNames = {"GROUND", "WALL", "BOX", "TARGET", "PLAYER"};
-        Color[] brushColors = {currentTheme.getGround(), currentTheme.getWall(), currentTheme.getBox(), currentTheme.getDestination(), currentTheme.getPlayer()};
-        
-        for (int i = 0; i < 5; i++) {
-            int bx = 125 + i * 80;
-            g2.setColor(new Color(25, 25, 25, 200));
-            g2.fillRoundRect(bx, paletteY, 70, 30, 6, 6);
-            
-            if (selectedBrush == i) {
-                g2.setColor(brushColors[i]);
-                g2.setStroke(new java.awt.BasicStroke(2.0f));
-                g2.drawRoundRect(bx, paletteY, 70, 30, 6, 6);
-                g2.setStroke(new java.awt.BasicStroke(1.0f));
-            } else {
-                g2.setColor(new Color(255, 255, 255, 15));
-                g2.drawRoundRect(bx, paletteY, 70, 30, 6, 6);
-            }
-            
-            g2.setFont(new Font("Segoe UI", Font.BOLD, 10));
-            g2.setColor(Color.WHITE);
-            FontMetrics fmb = g2.getFontMetrics();
-            g2.drawString(brushNames[i], bx + (70 - fmb.stringWidth(brushNames[i])) / 2, paletteY + 19);
-        }
-        
-        // Action Buttons at bottom
-        int actionY = paletteY + 52;
-        int cx = getWidth() / 2;
-        drawButton(g2, "PLAY MAP", cx - 110, actionY, 100, 34, currentTheme.getDestination());
-        drawButton(g2, "VALIDATE", cx, actionY, 100, 34, currentTheme.getPlayer());
-        drawButton(g2, "BACK TO MENU", cx + 110, actionY, 110, 34, currentTheme.getWall());
+        drawButton(g2, "EASY", cx, 168, 200, 36, currentTheme.getDestination());
+        drawButton(g2, "MEDIUM", cx, 218, 200, 36, currentTheme.getPlayer());
+        drawButton(g2, "HARD", cx, 268, 200, 36, currentTheme.getWall());
+        drawButton(g2, "EXIT", cx, 318, 200, 36, currentTheme.getWall());
     }
 
     private void drawPauseOverlay(Graphics2D g2) {
@@ -944,7 +686,7 @@ public class GamePanel extends JPanel {
         
         g2.setFont(new Font("Segoe UI", Font.PLAIN, 11));
         g2.setColor(new Color(180, 180, 180));
-        g2.drawString("Theme: " + currentTheme.getName(), 30, 52);
+        g2.drawString("Difficulty: " + formatDifficulty(selectedDifficulty), 30, 52);
         
         // Stats (Center)
         g2.setFont(new Font("Segoe UI", Font.BOLD, 14));
